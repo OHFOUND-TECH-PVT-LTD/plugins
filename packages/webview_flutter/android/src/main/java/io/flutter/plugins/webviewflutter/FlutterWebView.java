@@ -6,18 +6,21 @@ package io.flutter.plugins.webviewflutter;
 
 import android.annotation.TargetApi;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.view.View;
+import android.app.Activity;
 import android.webkit.GeolocationPermissions;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import io.flutter.app.FlutterApplication;
 
 import androidx.annotation.RequiresApi;
 import io.flutter.plugin.common.BinaryMessenger;
@@ -47,16 +50,17 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
       Map<String, Object> params,
       View containerView) {
 
+    Context wrappedContext = wrapContext(context);
     DisplayListenerProxy displayListenerProxy = new DisplayListenerProxy();
     DisplayManager displayManager =
-        (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+        (DisplayManager) wrappedContext.getSystemService(Context.DISPLAY_SERVICE);
     displayListenerProxy.onPreWebViewInitialization(displayManager);
-    webView = new InputAwareWebView(context, containerView);
+    webView = new InputAwareWebView(wrappedContext, containerView);
     /**
      * start
      * input='file'
      * */
-    context1 = context;
+    context1 = wrappedContext;
     webView.setWebChromeClient(new WebChromeClient(){
       @Override
       public boolean onShowFileChooser(
@@ -84,7 +88,7 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
      * */
     displayListenerProxy.onPostWebViewInitialization(displayManager);
 
-    platformThreadHandler = new Handler(context.getMainLooper());
+    platformThreadHandler = new Handler(wrappedContext.getMainLooper());
     // Allow local storage.
     webView.getSettings().setDomStorageEnabled(true);
     webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
@@ -108,6 +112,29 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
       String url = (String) params.get("initialUrl");
       webView.loadUrl(url);
     }
+  }
+  
+  private Context wrapContext(Context context) {
+    Context activityContext = context;
+    Context appContext = context.getApplicationContext();
+    if (appContext instanceof FlutterApplication) {
+      Activity currentActivity = ((FlutterApplication) appContext).getCurrentActivity();
+      if (currentActivity != null) {
+        activityContext = currentActivity;
+      }
+    }
+    final Context finalContext = activityContext;
+    // Cannot use activityContext, which will cause the keyboard to be unable to input.
+    // We have to wrap the original context.
+    return new ContextWrapper(context) {
+      @Override
+      public Object getSystemService(String name) {
+        if (name == Context.WINDOW_SERVICE) {
+          return finalContext.getSystemService(name);
+        }
+        return super.getSystemService(name);
+      }
+    };
   }
 
   @Override
